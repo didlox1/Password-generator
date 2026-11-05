@@ -5,13 +5,48 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-
+#include <string.h>
+#include "password.h"
+#include "generator.h"
 
 volatile uint8_t S2_press=0;
 volatile uint8_t S3_press=0;
 volatile uint8_t S4_press=0;
 
-void PORTA_IRQHandler(void)	// Interrupt handling
+// -----------------------
+// Password generator init
+	simple_rng_t rng = {
+        .state = 123456789u
+  };
+
+  password_profile_t profile = {
+      .length = 16,
+      .lowercase = true,
+      .uppercase = true,
+      .digits = true,
+      .specials = SPECIAL_SAFE
+  };
+
+  char password[16];
+	
+	void generate(){
+	bool success = password_generate(
+		password,
+		sizeof(password),
+		&profile,
+		simple_random,
+		&rng
+	);
+		
+	if (!success) {
+		strcpy(password, "Failed");
+	}
+}
+	
+// -----------------
+// Interrupt handler
+
+void PORTA_IRQHandler(void)
 {
 	uint32_t buf;
 	buf=PORTA->ISFR & (S2_MASK | S3_MASK | S4_MASK);
@@ -63,6 +98,10 @@ void PORTA_IRQHandler(void)	// Interrupt handling
 	NVIC_ClearPendingIRQ(PORTA_IRQn);
 }
 
+
+// ------------
+// Main program
+
 int main (void) 
 {
 	// Keyboard Init
@@ -81,11 +120,13 @@ int main (void)
 	{
 		if(S2_press)
 		{
+			generate();
+			// LCD
 			LCD1602_ClearAll();
 			LCD1602_SetCursor(0,0);
-			LCD1602_Print("Switch nr. 2");
-			LCD1602_SetCursor(7,1);
-			LCD1602_Print("pressed");
+			LCD1602_Print("Generated pass:");
+			LCD1602_SetCursor(0,1);
+			LCD1602_Print(password);
 			S2_press=0;
 		}
 		if(S3_press)
