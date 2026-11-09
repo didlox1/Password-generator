@@ -8,10 +8,16 @@
 #include <string.h>
 #include "password.h"
 #include "generator.h"
+#include "ADC.h"
+#include "uart.h"
 
-volatile uint8_t S2_press=0;
-volatile uint8_t S3_press=0;
-volatile uint8_t S4_press=0;
+volatile uint8_t S2_press=0; // password generation
+volatile uint8_t S3_press=0; // seed generation
+volatile uint8_t S4_press=0; // UART transmission
+
+volatile uint8_t wynik_ok=0;
+volatile uint16_t temp;
+volatile uint16_t	wynik;
 
 // -----------------------
 // Password generator init
@@ -44,7 +50,7 @@ volatile uint8_t S4_press=0;
 }
 	
 // -----------------
-// Interrupt handler
+// Interrupt handlers
 
 void PORTA_IRQHandler(void)
 {
@@ -98,6 +104,16 @@ void PORTA_IRQHandler(void)
 	NVIC_ClearPendingIRQ(PORTA_IRQn);
 }
 
+void ADC0_IRQHandler()
+{	
+	temp = ADC0->R[0];	// Odczyt danej i skasowanie flagi COCO
+	if(!wynik_ok)				// Sprawd�, czy wynik skonsumowany przez p�tl� g��wn�
+	{
+		wynik = temp;			// Wy�lij now� dan� do p�tli g��wnej
+		wynik_ok=1;
+	}
+}
+
 
 // ------------
 // Main program
@@ -109,6 +125,7 @@ int main (void)
 	Klaw_S2_4_Int();
 
 	// LCD Init
+	char display[]={0x20,0x20,0x20,0x20,0x20,0x20,0x20,0x20,0x20,0x20,0x20,0x20,0x20,0x20,0x20,0x20,0x20};
 	LCD1602_Init();
 	LCD1602_Backlight(TRUE);
 	LCD1602_ClearAll();
@@ -116,6 +133,19 @@ int main (void)
 	LCD1602_SetCursor(6, 1);
 	LCD1602_Print("of the LCD");
 	
+	// ADC Init
+	uint8_t	kal_error;
+	kal_error=ADC_Init();				// Inicjalizacja i kalibracja przetwornika A/C
+	if(kal_error)
+	{	
+		while(1);									// Klaibracja si� nie powiod�a
+	}
+	ADC0->SC1[0] = ADC_SC1_AIEN_MASK | ADC_SC1_ADCH(8);		// Pierwsze wyzwolenie przetwornika ADC0 w kanale 8 i odblokowanie przerwania
+	
+	// UART Init
+	uart_status_t uart_error;
+	uart_error = uart_init(115200, UART_PTB2_RX, UART_PTB1_TX);
+	// Main loop
   while(1)
 	{
 		if(S2_press)
@@ -131,20 +161,33 @@ int main (void)
 		}
 		if(S3_press)
 		{
-			LCD1602_ClearAll();
-			LCD1602_SetCursor(0,0);
-			LCD1602_Print("Switch nr. 3");
-			LCD1602_SetCursor(7,1);
-			LCD1602_Print("pressed");
-			S3_press=0;
+			ADC0->SC1[0] |= ADC_SC1_ADCH(8); // Wyzwolenie programowe przetwornika ADC0 w kanale 8
+			S3_press = 0;
 		}
-		if(S4_press)
+		if(wynik_ok)
 		{
 			LCD1602_ClearAll();
 			LCD1602_SetCursor(0,0);
-			LCD1602_Print("Switch nr. 4");
-			LCD1602_SetCursor(7,1);
-			LCD1602_Print("pressed");
+			LCD1602_Print("Generated seed:");
+			sprintf(display,"Seed = 0x%x",wynik);
+			LCD1602_SetCursor(0,1);
+			LCD1602_Print(display);	
+			wynik_ok=0;
+		}
+		
+		if(S4_press)
+		{
+			if (uart_error != UART_OK){
+				LCD1602_SetCursor(0,0);
+				LCD1602_ClearAll();
+				LCD1602_Print("UART CONFIGERR");
+			}
+			else{
+				uart_print("Button nr.4 pressed\n");
+				LCD1602_SetCursor(0,0);
+				LCD1602_ClearAll();
+				LCD1602_Print("UART printed");
+			}
 			S4_press=0;
 		}
 	}
